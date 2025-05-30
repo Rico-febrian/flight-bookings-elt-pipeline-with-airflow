@@ -39,10 +39,18 @@ class Extract:
             connection = pg_hook.get_conn()
             cursor = connection.cursor()
 
-            query = f"SELECT * FROM bookings.{table_name};"
+            # Query for get all data from selected table
+            query = f"SELECT * FROM bookings.{table_name} "
+            
             if incremental:
+
+                # Query to get new and updated data based on created_at or updated_at column
                 date = kwargs['ds']
-                query += f"WHERE created_at::DATE = '{date}'::DATE - INTERVAL '1 DAY';"
+                previous_date = f"{date}::DATE - INTERVAL '1 DAY'"
+                query += (
+                    f"WHERE created_at::DATE = {previous_date} "
+                    f"OR updated_at::DATE = {previous_date};"
+                )
 
                 object_name = f"/temp/{table_name}-{(pd.to_datetime(date) - timedelta(days=1)).strftime("%Y-%m-%d")}.csv"
 
@@ -52,13 +60,14 @@ class Extract:
 
             cursor.execute(query)
             result = cursor.fetchall()
-            cursor.close()
-            connection.commit()
-            connection.close()
 
             column_list = [desc[0] for desc in cursor.description]
             df = pd.DataFrame(result, columns=column_list)
 
+            cursor.close()
+            connection.commit()
+            connection.close()
+            
             if df.empty:
                 raise AirflowSkipException(f"{table_name} doesn't have new data. Skipped...")
 

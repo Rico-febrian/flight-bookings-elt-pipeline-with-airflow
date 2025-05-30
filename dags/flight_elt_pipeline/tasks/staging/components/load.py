@@ -36,6 +36,8 @@ class Load:
 
             date = kwargs.get('ds')
             table_pkey = kwargs.get('table_pkey')
+            if table_name not in table_pkey:
+                raise AirflowException(f"Primary key for {table_name} table is not defined")
 
             object_name = f'/temp/{table_name}-{(pd.to_datetime(date) - timedelta(days=1)).strftime("%Y-%m-%d")}.csv' if incremental else f'/temp/{table_name}.csv'
             
@@ -75,15 +77,13 @@ class Load:
 
             # Create a SQLAlchemy engine from Airflow PostgresHook to connect to the staging DB
             logger.info('Connecting to PostgreSQL via SQLAlchemy engine...')
-            # hook = PostgresHook(postgres_conn_id='warehouse-conn')
-            # engine = hook.get_sqlalchemy_engine()
             
             engine = create_engine(PostgresHook(postgres_conn_id='warehouse-conn').get_uri())
 
-            # 2. Definisi batching
-            BATCH_SIZE = 5000  # bisa kamu turunin kalau masih crash
+            # Define batch size
+            BATCH_SIZE = 10000
 
-            # 3. Loop dan kirim data per batch
+            # Loop and send data for each batch
             for start in range(0, len(df), BATCH_SIZE):
                 end = start + BATCH_SIZE
                 batch = df.iloc[start:end]
@@ -93,8 +93,7 @@ class Load:
                     df=batch,
                     table_name=table_name,
                     schema='stg',
-                    if_row_exists='update',
-                    create_table=False  # True kalau lo mau biar dia auto-create tabel kalau belum ada
+                    if_row_exists='update'
                 )
 
                 print(f"✅ Batch {start}-{end} loaded succesfully")    
