@@ -1,0 +1,112 @@
+version: '3.8'
+services:
+  airflow_standalone_ew4:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: airflow_standalone_ew4
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW_DB_URI}
+      - AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS=False
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+    depends_on:
+      - airflow_metadata_ew4
+    ports:
+      - ${AIRFLOW_PORT}:8080
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./include:/opt/airflow/include
+    networks:
+      - data_orchestration_week_4_net
+
+  airflow_metadata_ew4:
+    image: postgres:latest
+    container_name: airflow_metadata_ew4
+    restart: on-failure
+    environment:
+      POSTGRES_USER: ${AIRFLOW_DB_USER}
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      POSTGRES_DB: ${AIRFLOW_DB_NAME}
+    ports:
+      - ${AIRFLOW_DB_PORT}:5432
+    volumes:
+      - airflow_metadata_ew4_vol:/var/lib/postgresql/data
+    networks:
+      - data_orchestration_week_4_net
+
+  flight_source_db:
+    image: postgres:latest
+    container_name: flight_source_db
+    restart: on-failure
+    environment:
+      POSTGRES_USER: ${SOURCE_DB_USER}
+      POSTGRES_PASSWORD: ${SOURCE_DB_PASSWORD}
+      POSTGRES_DB: ${SOURCE_DB_NAME}
+    ports:
+      - ${SOURCE_DB_PORT}:5432
+    volumes:
+      - ./database_schema/source/:/docker-entrypoint-initdb.d
+      - flight_sourcedb_vol:/var/lib/postgresql/data
+    networks:
+      - data_orchestration_week_4_net
+
+  flight_warehouse_db:
+    image: postgres:latest
+    container_name: flight_warehouse_db
+    restart: on-failure
+    environment:
+      POSTGRES_USER: ${DWH_DB_USER}
+      POSTGRES_PASSWORD: ${DWH_DB_PASSWORD}
+      POSTGRES_DB: ${DWH_DB_NAME}
+    ports:
+      - ${DWH_DB_PORT}:5432
+    volumes:
+      - ./database_schema/warehouse/:/docker-entrypoint-initdb.d
+      - flight_warehousedb_vol:/var/lib/postgresql/data
+    networks:
+      - data_orchestration_week_4_net
+
+  minio_ew4:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    container_name: minio_ew4
+    hostname: minio
+    restart: on-failure
+    volumes:
+      - minio_data_ew4_vol:/data
+    ports:
+      - ${MINIO_API_PORT}:9000
+      - ${MINIO_CONSOLE_PORT}:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - data_orchestration_week_4_net
+
+volumes:
+  airflow_metadata_ew4_vol:
+    driver: local
+    name: airflow_metadata_ew4_vol
+
+  flight_sourcedb_vol:
+    driver: local
+    name: flight_sourcedb_vol
+
+  flight_warehousedb_vol:
+    driver: local
+    name: flight_warehousedb_vol
+
+  minio_data_ew4_vol:
+    driver: local
+    name: minio_data_ew4_vol
+
+networks:
+  data_orchestration_week_4_net:
+    driver: bridge
+    name: data_orchestration_week_4_net

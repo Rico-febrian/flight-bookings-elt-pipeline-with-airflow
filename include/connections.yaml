@@ -1,0 +1,36 @@
+minio-conn:
+  conn_type: aws
+  description: Connection to MinIO (Object Storage)
+  extra: '{"endpoint_url": "minio:9000"}'
+  host: ''
+  login: minioadmin
+  password: minio123
+  port: null
+  schema: ''
+slack_notifier:
+  conn_type: http
+  description: Connection to Slack for automating alert if there is an error
+  extra: ''
+  host: ''
+  login: ''
+  password: https://hooks.slack.com/services/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
+  port: null
+  schema: ''
+sources-conn:
+  conn_type: postgres
+  description: Connection to source database in PostgreSQL
+  extra: ''
+  host: flight_source_db
+  login: postgres
+  password: postgres123
+  port: 5432
+  schema: sources
+warehouse-conn:
+  conn_type: postgres
+  description: Connection to warehouse database in PostgreSQL
+  extra: ''
+  host: flight_warehouse_db
+  login: postgres
+  password: postgres123
+  port: 5432
+  schema: warehouse
