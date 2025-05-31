@@ -22,7 +22,7 @@ def extract(incremental):
         
         # Get list tables to extract from Airflow variables
         tables_to_extract = eval(Variable.get('tables_to_extract'))
-        task = []
+        tasks = []
 
         for table_name in tables_to_extract:
             current_task = PythonOperator(
@@ -35,7 +35,9 @@ def extract(incremental):
                 }
             )
             
-            task.append(current_task)
+            tasks.append(current_task)
+
+        return tasks
 
     return extract_to_minio()
 

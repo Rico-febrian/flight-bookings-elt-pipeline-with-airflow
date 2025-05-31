@@ -1,6 +1,5 @@
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.exceptions import AirflowSkipException
-from airflow import AirflowException
+from airflow.exceptions import AirflowException, AirflowSkipException
 from helper.minio import MinioClient
 from helper.logger import logger
 from airflow.providers.postgres.hooks.postgres import PostgresHook
