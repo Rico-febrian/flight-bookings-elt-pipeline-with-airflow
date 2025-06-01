@@ -2,10 +2,9 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.exceptions import AirflowSkipException
 from airflow import AirflowException
 from helper.minio import MinioClient
-from helper.postgres import Execute
 from helper.logger import logger
 from io import BytesIO
-from datetime import timedelta
+from datetime import datetime, timedelta
 import pandas as pd
 
 logger = logger(logger_name="extract-job")
@@ -46,13 +45,13 @@ class Extract:
 
                 # Query to get new and updated data based on created_at or updated_at column
                 date = kwargs['ds']
-                previous_date = f"{date}::DATE - INTERVAL '1 DAY'"
+                previous_date = (pd.to_datetime(date) - timedelta(days=1)).strftime('%Y-%m-%d')
                 query += (
-                    f"WHERE created_at::DATE = {previous_date} "
-                    f"OR updated_at::DATE = {previous_date};"
+                    f"WHERE DATE(created_at) = '{previous_date}' "
+                    f"OR DATE(updated_at) = '{previous_date}';"
                 )
 
-                object_name = f"/temp/{table_name}-{(pd.to_datetime(date) - timedelta(days=1)).strftime("%Y-%m-%d")}.csv"
+                object_name = f"/temp/{table_name}-{previous_date}.csv"
 
             else:
 

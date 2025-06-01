@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from io import BytesIO
 from datetime import timedelta
 from pangres import upsert
+from minio.error import S3Error
 import pandas as pd
 import json
 
@@ -34,11 +35,10 @@ class Load:
         try:
 
             date = kwargs.get('ds')
+            previous_date = (pd.to_datetime(date) - timedelta(days=1)).strftime("%Y-%m-%d")
             table_pkey = kwargs.get('table_pkey')
-            if table_name not in table_pkey:
-                raise AirflowException(f"Primary key for {table_name} table is not defined")
 
-            object_name = f'/temp/{table_name}-{(pd.to_datetime(date) - timedelta(days=1)).strftime("%Y-%m-%d")}.csv' if incremental else f'/temp/{table_name}.csv'
+            object_name = f'/temp/{table_name}-{previous_date}.csv' if incremental else f'/temp/{table_name}.csv'
             
             # Initialize MinIO client and fetch the CSV object from the specified bucket
             logger.info('Connecting to MinIO...')
@@ -51,7 +51,18 @@ class Load:
                 bucket_name=bucket_name,
                 object_name=object_name
             )
+
+        except S3Error as e:
+            if e.code == "NoSuchKey":
+                raise AirflowSkipException(f"File {object_name} not found in bucket. Skipped...")
+            else:
+                raise AirflowException(f"MinIO error: {e}")
             
+        except Exception as e:
+            raise AirflowException(f"Unexpected error: {e}")
+            
+        try:
+
             # Read the CSV content from the MinIO object as bytes, convert to a pandas DataFrame
             logger.info('Reading CSV content into DataFrame...')
             df = pd.read_csv(BytesIO(obj.read()))
@@ -79,23 +90,30 @@ class Load:
             
             engine = create_engine(PostgresHook(postgres_conn_id='warehouse-conn').get_uri())
 
-            # Define batch size
-            BATCH_SIZE = 10000
+            try:
+                # Define batch size
+                BATCH_SIZE = 10000
 
-            # Loop and send data for each batch
-            for start in range(0, len(df), BATCH_SIZE):
-                end = start + BATCH_SIZE
-                batch = df.iloc[start:end]
+                # Loop and send data for each batch
+                for start in range(0, len(df), BATCH_SIZE):
+                    end = start + BATCH_SIZE
+                    batch = df.iloc[start:end]
+                    
+                    try:
+                        upsert(
+                            con=engine,
+                            df=batch,
+                            table_name=table_name,
+                            schema='stg',
+                            if_row_exists='update'
+                        )
+                        logger.info(f"✅ Batch {start}-{end} loaded succesfully") 
 
-                upsert(
-                    con=engine,
-                    df=batch,
-                    table_name=table_name,
-                    schema='stg',
-                    if_row_exists='update'
-                )
-
-                print(f"✅ Batch {start}-{end} loaded succesfully")    
+                    except Exception as batch_error:
+                        raise AirflowException(f"Failed upsert batch {start}-{end}: {batch_error}") 
+            
+            finally:
+                engine.dispose()
 
             # Upload DataFrame contents into the staging table, appending data without DataFrame index
             logger.info(f'Uploading DataFrame to {table_name} table...')
