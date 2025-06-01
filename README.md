@@ -10,10 +10,15 @@ This project is a hands-on example of an ELT (Extract, Load, Transform) data pip
 
 This project demonstrates how to:
 
-* **Extract** data from a source (PostgreSQL) database
-* **Load** it into a staging schema in a data warehouse (also PostgreSQL) and
-* **Transform** it into a final schema for analysis or reporting
+- **Extract** data from a source database
+- **Load** it into a staging schema in a data warehouse
+- **Transform** it into a final schema for analysis or reporting and
+- **Orchestrate** the entire ELT process using Airflow, including:
 
+  - Managing connections and variables
+  - Creating dynamic tasks and
+  - Handling task failures and errors in Airflow
+    
 ---
 
 ## 🔄 How the Pipeline Works
@@ -30,18 +35,29 @@ This project demonstrates how to:
 
 By completing this project, you will:
 
-* Understand the basic structure of an ELT pipeline
-* Learn how to use Apache Airflow (Standalone) to manage DAG, connection and pipeline.
-* Run and monitor DAGs through the Airflow UI
+- Understand the basic structure of an ELT pipeline
+
+- Learn how to use Apache Airflow (Standalone) to:
+    - Manage connection and variables
+    - Create dynamic task and
+    - Handle task failures and errors
+
+- Run and monitor DAGs through the Airflow UI
 
 ---
 
 ## ⚙️ Requirements
 
-Make sure you have the following tools installed:
+Make sure your setup meets these minimum requirements:
+
+- A laptop with at least **8GB of RAM**
+
+  (Note: 8GB is the bare minimum, especially if you’re running on Windows. If possible, go for 16GB for a smoother experience.)
 
 - Docker or Docker Desktop with WSL enabled
+
 - Python 3.7 or newer
+
 - DBeaver (or any PostgreSQL-compatible database client)
 
 ---
@@ -51,9 +67,8 @@ Make sure you have the following tools installed:
 ```
 elt-airflow-project/
 ├── dags/
-│   └── travel_elt_pipeline/
+│   └── flight_elt_pipeline/
 │       ├── helper/                  # Helper functions
-│       ├── query/                   # SQL file to extract each table from data source
 │       ├── transformation_models/   # SQL file to transform data from staging to final schema
 │       ├── tasks/                   # Core task scripts (extract, load, transform)
 │       └── run.py                   # Main DAG definition
@@ -163,31 +178,125 @@ Log in with the credentials you created.
 
 ## 🔌 Setup Airflow Connections
 
-You need to create 3 connections via the Airflow UI:
+You need to create **5 connections** via the **Airflow UI**:
 
-* **PostgreSQL - Source Database**
-* **PostgreSQL - Data Warehouse**
-* **MinIO - Object Storage**
+1[connections-list]()
 
-Steps:
+- `sources-conn` and `warehouse-conn`
+    
+    - **Type**: PostgreSQL
+    - **Description**: Connection to source and warehouse database
 
-1. Go to **Admin > Connections**
-2. Click **+** to add new connection
-3. Fill in the details as per your `.env` setup
+      ![db-conn]()
 
-### Source and Warehouse Connection
+- `minio-conn`
+    
+    - **Type**: Amazon Web Service
+    - **Description**: Connection to MinIO (used as object storage/data lake)
 
-![database-connection](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/database-connection.png)
+      ![minio-conn]()
 
-### MinIO Connection
+- `slack_notifier`
 
-![minio-connection](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/minio-connection.png)
+    - **Type**: HTTP
+    - **Description**: Connection to a Slack channel for error alerts
+    - **Setup Steps**:
+
+      1. **Log in** to your existing Slack account or **create** a new one if you don’t have it yet.
+      2. **Create a workspace** (if you don’t already have one) and create a dedicated Slack channel where you want to receive alerts.
+      3. **Create a Slack App**:
+
+         - Go to https://api.slack.com/apps
+         - Click **Create New App**
+         - Choose **From scratch**
+         - Enter your app name and select the workspace you just created or want to use
+         - Click **Create App**
+    
+      4. **Set up an Incoming Webhook** for your app:
+
+         - In the app settings, find and click on **Incoming Webhooks**
+         - **Enable Incoming Webhooks** if it’s not already enabled
+         - Click **Add New Webhook to Workspace**
+         - Select the Slack channel you want alerts to go to and authorize
+    
+      5. **Copy the generated Webhook URL**
+      6. In your Airflow UI, create a new connection called `slack_notifier` with:
+
+         - **Connection Type**: HTTP
+         - **Password field**: paste the copied Webhook URL here
+
+         ![slack-conn]()
+          
+---
+
+## 🔌 Setup Airflow Variables
+
+You need to create **4 variables** via the **Airflow UI**:
+
+![variables-list]()
+
+- `incremental`
+    
+    - **Value**: `True` or `False`. Default value is `True`
+    - **Description**:
+        
+        - If set to `True`, the pipeline will perform **incremental** Extract and Load processes, meaning it only processes new or updated data based on the created_at or updated_at columns in each table.
+        
+        - If set to `False`, the pipeline will run a **full load**, extracting and loading all data every time, regardless of changes.
+
+- `tables_to_extract`
+    
+    - **Value**:
+
+      ```bash
+      ['aircrafts_data', 'airports_data', 'bookings', 'tickets', 'seats', 'flights', 'ticket_flights', 'boarding_passes']
+      ```
+    
+    - **Description**: This variable will be used to create dynamic tasks during the data extraction process.
+
+- `tables_to_load`
+
+    - **Value**:
+
+      ``` bash
+      {
+          "aircrafts_data": "aircraft_code",
+          "airports_data": "airport_code",
+          "bookings": "book_ref",
+          "tickets": "ticket_no",
+          "seats": ["aircraft_code", "seat_no"],
+          "flights": "flight_id",
+          "ticket_flights": ["ticket_no", "flight_id"],
+          "boarding_passes": ["ticket_no", "flight_id"]
+      }
+      ```
+
+    - **Description**: This variable will be used to create dynamic tasks during the data loading process to the staging area. The keys of the dictionary represent the table names, and the values represent the primary keys of those tables.
+
+- `tables_to_transform`
+    
+    - **Values**:
+
+      ```bash
+      [
+        "dim_aircraft",
+        "dim_airport",
+        "dim_passenger",
+        "dim_seat",
+        "fct_boarding_pass",
+        "fct_booking_ticket",
+        "fct_flight_activity",
+        "fct_seat_occupied_daily"
+      ]
+      ```
+      
+    - **Description**: This table will be used to create dynamic tasks during the data transformation process.
 
 ---
 
 ## ▶️ Run the DAG
 
-1. In the Airflow UI, find the DAG named `travel_elt_pipeline`
+1. In the Airflow UI, find the DAG named `flight_elt_pipeline`
 2. Click the **Play** button to trigger it
 3. Monitor task progress via the **Graph View** or **Tree View**
 
@@ -200,7 +309,7 @@ Steps:
   - Navigate to the selected bucket.
   - You should see the extracted data files in CSV format.
     
-    ![extracted-data](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/extracted-file-in-minio.jpg)
+    ![extracted-data]()
 
 - ### Staging and Transformed data in Data Warehouse
   To verify the data in your data warehouse:
@@ -208,26 +317,42 @@ Steps:
   - Open your preferred database client (e.g., DBeaver).
   - Connect to your warehouse database.
   - Check the following:
+    
       - ✅ Raw data from the source should be available under the **staging** schema.
       - ✅ Transformed data should be available under the **final** schema.
 
 - ### DAG Result
-    
-    - DAG Graph
 
-      ![dag-graph](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/dag%20graph.png)
+  Since incremental mode and catchup are enabled (set to `True`), the pipeline runs **starting from the `start_date` defined in the main script**.
 
-    - Extract Task (running in parallel)
+  **How it works**:
 
-      ![extract-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/extract-task.png)
+  - The pipeline extracts and loads only the new or updated data based on the `created_at` or `updated_at` columns in each table. If there is no new or updated data for a given date, **the task will be skipped** to save time and resources.
 
-    - Load Task (running sequentially)
+  **Example**:
 
-      ![load-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/load-task.png)
+  - If the DAG runs on 2025-01-01, but **there are no records with `created_at` or `updated_at` on 2024-12-31 (the previous date)**, the extract and load tasks for that date **will be skipped**.
 
-    - Transform Task (running sequentially)
+  - On the other hand, if there are records with changes on that date, the extract and load processes will run as usual.
+  
+    ![dag-graph]()
 
-      ![transform-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/transform-task.png)
+    Take a look at the DAG:
+
+    - A pink flag means that on that date, **no new or updated data was found**, so the task was **skipped**.
+    - A green flag means **data was detected**, so the extract or load process **ran normally**.
+
+  - Extract Task (running in parallel)
+
+    ![extract-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/extract-task.png)
+
+  - Load Task (running sequentially)
+
+    ![load-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/load-task.png)
+
+  - Transform Task (running sequentially)
+
+    ![transform-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/transform-task.png)
 
 ---
 
