@@ -1,5 +1,4 @@
 from airflow.providers.slack.operators.slack_webhook import SlackWebhookOperator
-import traceback as tb
 
 def slack_notifier(context):
     slack_icon = "red_circle"
