@@ -41,9 +41,8 @@ By completing this project, you will:
     - Manage connection and variables
     - Create dynamic task and
     - Handle task failures and errors
-
-- Run and monitor DAGs through the Airflow UI
-
+    - Run and monitor DAGs through the Airflow UI
+      
 ---
 
 ## ⚙️ Requirements
@@ -103,7 +102,7 @@ pip install cryptography==45.0.2
 python3 fernet.py
 ```
 
-Copy the output key to the `.env` file.
+**Copy the output key** to the `.env` file.
 
 ### 3. Create `.env` File
 
@@ -144,19 +143,14 @@ MINIO_ROOT_PASSWORD=...       # eg: minio123
 MINIO_API_PORT=...            # eg: 9000 (commonly used for MinIO API)
 MINIO_CONSOLE_PORT=...        # eg: 9001 (commonly used for MinIO Console)
 ```
-### 4. Extract Source Dataset
-```bash
-cd database_schema/source/
-unzip init.zip
-```
 
-### 5. Build and Start Services
+### 4. Build and Start Services
 
 ```bash
 docker-compose up --build -d
 ```
 
-### 6. Create Airflow User
+### 5. Create Airflow User
 
 ```bash
 docker exec -it airflow_standalones airflow users create \
@@ -168,7 +162,7 @@ docker exec -it airflow_standalones airflow users create \
     --password your_password
 ```
 
-### 7. Open Airflow UI
+### 6. Open Airflow UI
 
 Access the UI at: [http://localhost:8080](http://localhost:8080) (or your defined port).
 
@@ -178,23 +172,23 @@ Log in with the credentials you created.
 
 ## 🔌 Setup Airflow Connections
 
-You need to create **5 connections** via the **Airflow UI**:
+You need to create **4 connections** via the **Airflow UI**:
 
-1[connections-list]()
+<img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/connection-list.png" alt="connection-list" width="800"/>
 
 - `sources-conn` and `warehouse-conn`
     
     - **Type**: PostgreSQL
     - **Description**: Connection to source and warehouse database
 
-      ![db-conn]()
+      <img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/database-connection.png" alt="db-conn" width="600"/>
 
 - `minio-conn`
     
     - **Type**: Amazon Web Service
     - **Description**: Connection to MinIO (used as object storage/data lake)
 
-      ![minio-conn]()
+      <img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/minio-connection.png" alt="minio-conn" width="600"/>
 
 - `slack_notifier`
 
@@ -202,9 +196,9 @@ You need to create **5 connections** via the **Airflow UI**:
     - **Description**: Connection to a Slack channel for error alerts
     - **Setup Steps**:
 
-      1. **Log in** to your existing Slack account or **create** a new one if you don’t have it yet.
-      2. **Create a workspace** (if you don’t already have one) and create a dedicated Slack channel where you want to receive alerts.
-      3. **Create a Slack App**:
+      - **Log in** to your existing Slack account or **create** a new one if you don’t have it yet.
+      - **Create a workspace** (if you don’t already have one) and create a dedicated Slack channel where you want to receive alerts.
+      - **Create a Slack App**:
 
          - Go to https://api.slack.com/apps
          - Click **Create New App**
@@ -220,12 +214,15 @@ You need to create **5 connections** via the **Airflow UI**:
          - Select the Slack channel you want alerts to go to and authorize
     
       5. **Copy the generated Webhook URL**
-      6. In your Airflow UI, create a new connection called `slack_notifier` with:
+
+         <img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/slack-webhook.png" alt="webhook-url" width="600"/>
+         
+      7. In your Airflow UI, create a new connection called `slack_notifier` with:
 
          - **Connection Type**: HTTP
          - **Password field**: paste the copied Webhook URL here
 
-         ![slack-conn]()
+           <img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/slack-connection.png" alt="slack-conn" width="600"/>
           
 ---
 
@@ -233,7 +230,7 @@ You need to create **5 connections** via the **Airflow UI**:
 
 You need to create **4 variables** via the **Airflow UI**:
 
-![variables-list]()
+<img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/variables-list.png" alt="variables-list" width="700"/>
 
 - `incremental`
     
@@ -304,56 +301,58 @@ You need to create **4 variables** via the **Airflow UI**:
 
 ## ✅ Verify the Results
 
-- ### Extracted Data in MinIO Bucket
-  - Log in to the MinIO console (eg. localhost:9000) using the username and password defined in your `.env` file.
-  - Navigate to the selected bucket.
-  - You should see the extracted data files in CSV format.
-    
-    ![extracted-data]()
+Since incremental mode and catchup are enabled (set to `True`), the pipeline runs **starting from the `start_date` defined in the main script**.
 
-- ### Staging and Transformed data in Data Warehouse
-  To verify the data in your data warehouse:
+**How it works**:
 
-  - Open your preferred database client (e.g., DBeaver).
-  - Connect to your warehouse database.
-  - Check the following:
-    
-      - ✅ Raw data from the source should be available under the **staging** schema.
-      - ✅ Transformed data should be available under the **final** schema.
+- The pipeline extracts and loads only the new or updated data based on the `created_at` or `updated_at` columns in each table. If there is no new or updated data for a given date, **the task will be skipped** to save time and resources.
 
-- ### DAG Result
+**Example**:
 
-  Since incremental mode and catchup are enabled (set to `True`), the pipeline runs **starting from the `start_date` defined in the main script**.
+- If the DAG runs on 2025-01-01, but **there are no records with `created_at` or `updated_at` on 2024-12-31 (the previous date)**, the extract and load tasks for that date **will be skipped**.
 
-  **How it works**:
+- On the other hand, if there are records with changes on that date, the extract and load processes will run as usual.
 
-  - The pipeline extracts and loads only the new or updated data based on the `created_at` or `updated_at` columns in each table. If there is no new or updated data for a given date, **the task will be skipped** to save time and resources.
+### DAG Result
 
-  **Example**:
+<img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/dag-result.png" alt="dag-result" width="800"/>
 
-  - If the DAG runs on 2025-01-01, but **there are no records with `created_at` or `updated_at` on 2024-12-31 (the previous date)**, the extract and load tasks for that date **will be skipped**.
+Take a look at the DAG:
 
-  - On the other hand, if there are records with changes on that date, the extract and load processes will run as usual.
-  
-    ![dag-graph]()
+- A pink flag means that on that date, **no new or updated data was found**, so the task was **skipped**.
+- A green flag means **data was detected**, so the extract or load process **ran normally**.
 
-    Take a look at the DAG:
+### Extract Task (running in parallel)
 
-    - A pink flag means that on that date, **no new or updated data was found**, so the task was **skipped**.
-    - A green flag means **data was detected**, so the extract or load process **ran normally**.
+<img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/extract-task.png" alt="extract-task" width="200"/>
 
-  - Extract Task (running in parallel)
+### Load Task (running sequentially)
 
-    ![extract-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/extract-task.png)
+<img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/load-task.png" alt="load-task" width="800"/>
 
-  - Load Task (running sequentially)
+### Transform Task (running sequentially)
 
-    ![load-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/load-task.png)
+<img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/transform-task.png" alt="transform-task" width="800"/>
 
-  - Transform Task (running sequentially)
+### Extracted Data in MinIO Bucket
 
-    ![transform-task](https://github.com/Rico-febrian/elt-pipeline-with-airflow-for-travel-business/blob/main/pict/transform-task.png)
+- Log in to the MinIO console (eg. localhost:9000) using the username and password defined in your `.env` file.
+- Navigate to the selected bucket.
+- You should see the extracted data files in CSV format.
 
+  <img src="https://github.com/Rico-febrian/flight-bookings-elt-pipeline-with-airflow/blob/main/pict/minio-result.png" alt="minio-result" width="600"/>
+
+### Staging and Transformed data in Data Warehouse
+
+To verify the data in your data warehouse:
+
+- Open your preferred database client (e.g., DBeaver).
+- Connect to your warehouse database.
+- Check the following:
+
+  - ✅ Raw data from the source should be available under the **staging** schema.
+  - ✅ Transformed data should be available under the **final** schema.
+        
 ---
 
 ## 📬 Feedback & Articles
