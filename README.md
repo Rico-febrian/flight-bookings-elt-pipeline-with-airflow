@@ -89,8 +89,8 @@ elt-airflow-project/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/elt-airflow-project.git
-cd elt-airflow-project
+git clone git@github.com:Rico-febrian/flight-bookings-elt-pipeline-with-airflow.git
+cd flight-bookings-elt-pipeline-with-airflow
 ```
 
 ### 2. Generate Fernet Key
