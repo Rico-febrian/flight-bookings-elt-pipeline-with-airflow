@@ -2,7 +2,6 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.exceptions import AirflowException, AirflowSkipException
 from helper.minio import MinioClient
 from helper.logger import logger
-from airflow.providers.postgres.hooks.postgres import PostgresHook
 from sqlalchemy import create_engine
 from io import BytesIO
 from datetime import timedelta
@@ -11,6 +10,7 @@ from minio.error import S3Error
 import pandas as pd
 import json
 
+# Initialize logger for the load task
 logger = logger(logger_name="load-job")
 
 class Load:
@@ -20,24 +20,34 @@ class Load:
         Load CSV data from a MinIO bucket into a staging table in a PostgreSQL database.
 
         Args:
-            connection_id (str): Airflow connection ID for the PostgreSQL staging database.
-            bucket_name (str): Name of the MinIO bucket containing the CSV file.
-            table_name (str): Name of the table (and CSV file) to load data into.
-            schema (str): Database schema name where the staging table exists.
+            table_name (str): 
+                Name of the table to be loaded into the staging schema.
+                This should match the original source table name.
 
-        Returns:
-            None: This function uploads data to the staging table but does not return a value.
+            incremental (bool or str): 
+                If True or a non-empty string, load from an incremental file (with date in the filename).
+                Otherwise, load the full version of the file without date-based filtering.
 
-        Raises:
-            Exception: If any operation fails during the loading process (e.g., connection errors, data upload failures).
-        """
+            **kwargs: 
+                Expected to contain Airflow context variables, specifically:
+                    - 'ds' (str): Execution date in 'YYYY-MM-DD' format.
+                    - 'table_pkey' (dict): Dictionary mapping table names to their primary key column(s).
         
-        try:
+        Raises:
+            AirflowSkipException: If the file doesn't exist in MinIO (common in incremental mode when there's no new data).
+            AirflowException: If any failure occurs during MinIO interaction, file parsing, or DB loading.
+        """
 
+        try:
+            
+            # Get yesterday's date based on Airflow execution date
             date = kwargs.get('ds')
             previous_date = (pd.to_datetime(date) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+            # Get list of primary key from Airflow's variables
             table_pkey = kwargs.get('table_pkey')
 
+            # Determine MinIO object path based on whether we're doing incremental or full load
             object_name = f'/temp/{table_name}-{previous_date}.csv' if incremental else f'/temp/{table_name}.csv'
             
             # Initialize MinIO client and fetch the CSV object from the specified bucket
@@ -53,17 +63,18 @@ class Load:
             )
 
         except S3Error as e:
+            # If file not found, skip the task instead of failing the whole pipeline
             if e.code == "NoSuchKey":
                 raise AirflowSkipException(f"File {object_name} not found in bucket. Skipped...")
             else:
                 raise AirflowException(f"MinIO error: {e}")
             
         except Exception as e:
-            raise AirflowException(f"Unexpected error: {e}")
+            raise AirflowException(f"Unexpected error while accessing MinIO: {e}")
             
         try:
 
-            # Read the CSV content from the MinIO object as bytes, convert to a pandas DataFrame
+            # Read the CSV content from the MinIO object as bytes then convert to a pandas DataFrame
             logger.info('Reading CSV content into DataFrame...')
             df = pd.read_csv(BytesIO(obj.read()))
             
@@ -91,15 +102,16 @@ class Load:
             engine = create_engine(PostgresHook(postgres_conn_id='warehouse-conn').get_uri())
 
             try:
-                # Define batch size
-                BATCH_SIZE = 10000
+                # Define number of rows per upsert batch
+                BATCH_SIZE = 10000 
 
-                # Loop and send data for each batch
+                # Process and load data in batches
                 for start in range(0, len(df), BATCH_SIZE):
                     end = start + BATCH_SIZE
                     batch = df.iloc[start:end]
                     
                     try:
+                        # Perform upsert: insert if new, update if exists
                         upsert(
                             con=engine,
                             df=batch,
@@ -115,7 +127,6 @@ class Load:
             finally:
                 engine.dispose()
 
-            # Upload DataFrame contents into the staging table, appending data without DataFrame index
             logger.info(f'Uploading DataFrame to {table_name} table...')
 
         except AirflowSkipException as e:

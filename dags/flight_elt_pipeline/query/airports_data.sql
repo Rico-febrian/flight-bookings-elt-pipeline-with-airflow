@@ -1,1 +1,0 @@
-select * from bookings.airports_data ad ;
